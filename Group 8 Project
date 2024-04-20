@@ -1,0 +1,360 @@
+import pandas as pd
+from IPython.display import Markdown
+
+pd.set_option('display.max_rows', 200)
+pd.set_option('display.max_columns', None)
+
+#read csv
+
+df = pd.read_csv(r'G:\My Drive\Sask Poly\Assignments\Programming for DS - Python\Assignment 4\COVID_Parcel_Business.csv')
+
+print(df.head(10))
+
+
+# 2019 data to determine customer type
+
+df_2019 = df[df['THE_YEAR'] == 2019].groupby(['FakeCustomerID']).agg(
+    total_volume=('VOLUME', 'sum')  # Rename the aggregated column to 'total_volume'
+).reset_index()
+
+row_count = df_2019.shape[0]
+print("\nRow count in df_2019:", row_count)
+
+print(df_2019.head(10))
+
+# Creating 2 new columns (cust size and discount) basis the total volume for each customer in 2019
+
+def category(total_volume):
+    if total_volume > 500000:
+        return 'Enterprise'
+    elif total_volume >= 200000 and total_volume <= 500000:
+        return 'Large'
+    elif total_volume >= 10000 and total_volume <= 200000:
+        return 'Medium'
+    elif total_volume >= 1000 and total_volume <= 10000:
+        return 'Small'
+    elif total_volume < 1000:
+        return 'No Contract'
+    else:
+        return 'Error'
+    
+
+
+df_2019['Customer_size'] = df_2019['total_volume'].apply(category)
+df_2019['Discount'] = df_2019['Customer_size'].map({'Enterprise': 22, 'Large': 17, 'Medium': 10, 'Small':4})
+
+print("\n\n")
+print(df_2019.head(20))
+
+df_2019.to_csv('size.csv')
+
+
+
+# merging back the data to incorporate the cust type
+
+if 'total_volume' in df_2019.columns:
+  df_2019.drop(columns=['total_volume'], inplace=True)
+  print("total_volume dropped")
+else:
+  print('already dropped')
+
+
+
+# Merge the summary DataFrame back to the original DataFrame based on 'custID'
+df_merged = pd.merge(df, df_2019, on='FakeCustomerID', how='left')
+
+
+df_merged['pricePerParcel'] = 22
+df_merged['total_price'] = 22*df_merged['VOLUME']
+
+df_merged['Discount'].fillna(0, inplace=True)  # Replace missing discounts with 0 (or a more appropriate value)
+
+df_merged['Discounted_price'] = df_merged['VOLUME'] * df_merged['pricePerParcel']  * (1 - df_merged['Discount'] / 100)
+
+print(df_merged.head(20))
+
+
+
+
+#### Define a function to assign labels based on week numbers and year
+
+pd.set_option('display.width', 1000)
+
+# Define a function to assign labels based on week numbers and year
+def assign_period_label(THE_WEEK, THE_YEAR,VOLUME):
+    if (THE_YEAR == 2019) or  (THE_YEAR == 2020  and THE_WEEK <= 12):
+        return 'PRE_COVID'
+    elif THE_YEAR == 2020 and THE_WEEK >= 10 and VOLUME>1:
+        return 'POST_COVID'
+    else:
+        return 'Other'
+
+# Apply the function to create a new column with period labels
+df_merged['Pre_post_covid'] = df_merged.apply(lambda row: assign_period_label(row['THE_WEEK'], row['THE_YEAR'],row['VOLUME']), axis=1)
+
+print("\n Pre_post_covid variable created" + "\n")
+print(df_merged)
+
+df_pre_post_tag = df_merged.groupby(['FakeCustomerID', 'Pre_post_covid']).agg(
+    pre_post_volume=('VOLUME', 'sum')  # Rename the aggregated column to 'total_volume'
+).reset_index()
+
+
+# Display the DataFrame with the new column
+
+
+print(df_pre_post_tag)
+
+df_pre_post_tag.to_csv('test.csv',index=False)
+
+
+
+
+#### Transposing the Data
+
+# Assuming df_test contains the data with FakeCustomerID and Pre_post_covid columns
+
+# Group by 'FakeCustomerID' and aggregate the 'Pre_post_covid' values into a list
+df_transpose = df_pre_post_tag.groupby('FakeCustomerID')['Pre_post_covid'].agg(list).reset_index()
+
+# Iterate through the list of 'Pre_post_covid' values for each FakeCustomerID
+for index, row in df_transpose.iterrows():
+    for value in row['Pre_post_covid']:
+        # Create boolean columns based on 'Pre_post_covid' values
+        df_transpose.at[index, value] = True
+
+# Fill NaN values with False
+df_transpose.fillna(False, inplace=True)
+
+# Drop the original 'Pre_post_covid' column
+df_transpose.drop(columns=['Pre_post_covid'], inplace=True)
+
+# Display the summarized DataFrame
+print("\n\n PRE POST TAGS Transposed")
+print(df_transpose)
+
+df_transpose.to_csv('test2.csv',index=False)
+
+
+### Calculating overall ISGR - 11.4
+
+# Calculate weekly volume for the specified periods in 2019 and 2020
+week_15_2019_volume = df_merged[(df_merged['THE_WEEK'] <= 15) & (df_merged['THE_YEAR'] == 2019)] ['VOLUME'].sum()
+week_15_2020_volume = df_merged[(df_merged['THE_WEEK'] <= 15) & (df_merged['THE_YEAR'] == 2020)]['VOLUME'].sum()
+
+# Calculate weekly growth rate for 2020 compared to 2019 (week 1 to 15)
+growth_rate_2020 = round((((week_15_2020_volume - week_15_2019_volume) / week_15_2019_volume) * 100),2)
+
+print(" Growth Rate (Week 1-15, 2020 vs. 2019):", growth_rate_2020, "%")
+
+
+ Growth Rate (Week 1-15, 2020 vs. 2019): 11.4 %
+
+unique_customer_sizes = df_merged['Customer_size'].unique()
+
+
+for size in unique_customer_sizes:
+    week_15_2019_size = df_merged[(df_merged['THE_WEEK'] <= 15) & (df_merged['THE_YEAR'] == 2019) & (df_merged['Customer_size'] == size)]['VOLUME'].sum()
+    week_15_2020_size = df_merged[(df_merged['THE_WEEK'] <= 15) & (df_merged['THE_YEAR'] == 2020) & (df_merged['Customer_size'] == size)]['VOLUME'].sum()
+    
+    # Calculate weekly growth rate for 2020 compared to 2019 (week 1 to 15)
+    growth_rate_per_size = round((((week_15_2020_size - week_15_2019_size) / week_15_2019_size) * 100),2)
+    print(size, " : ",growth_rate_per_size)
+   
+
+unique_customer_sizes = df_merged['Customer_size'].unique()
+
+for size in unique_customer_sizes:
+    pre_cov = df_merged[(df_merged['THE_WEEK'] <= 15) & (df_merged['THE_YEAR'] == 2020) & (df_merged['Customer_size'] == size) ]['VOLUME' ]. sum()
+    post_cov = df_merged[(df_merged['THE_WEEK'] > 15) & (df_merged['THE_YEAR'] == 2020) & (df_merged['Customer_size'] == size) ]['VOLUME' ]. sum()
+
+    # Calculate weekly growth rate for 2020 compared to 2019 (week 1 to 15)
+    growth_rate_per_size=round(((((post_cov/37)-(pre_cov/15))/(pre_cov/15)) *100),2)
+    print(size, " : ",growth_rate_per_size)
+
+
+
+### Calculating the ISGR for each customer separately - Precovid vs postcovid (only 2020 data used)
+
+# calculate ISGR for each customer
+
+
+df_pre_covid = df[(df['THE_YEAR'] == 2020) & (df['THE_WEEK'] <= 10)].groupby(['FakeCustomerID']).agg(
+    pre_covid_volume=('VOLUME', 'sum'),  # Rename the aggregated column to 'pre_covid_volume'
+).reset_index()
+
+df_pre_covid['average_pre_covid'] = df_pre_covid['pre_covid_volume'] / 10
+print(df_pre_covid)
+
+
+df_post_covid = df[(df['THE_YEAR'] == 2020) & (df['THE_WEEK'] > 10)].groupby(['FakeCustomerID']).agg(
+    post_covid_volume=('VOLUME', 'sum'),  # Rename the aggregated column to 'pre_covid_volume'
+).reset_index()
+
+df_post_covid['average_post_covid'] = df_post_covid['post_covid_volume'] / 42
+print(df_post_covid)
+
+# merging the data
+
+df_for_ISGR = pd.merge(df_pre_covid, df_post_covid, on='FakeCustomerID', how='outer')
+
+
+
+
+# calculate the ISGR
+
+df_for_ISGR['ISGR'] = round(((df_for_ISGR['average_post_covid'] - df_for_ISGR['average_pre_covid']) / df_for_ISGR['average_pre_covid']) * 100, 2)
+
+display(Markdown("**FINAL DATA WITH PRE AND POST**"))
+print(df_for_ISGR)
+
+Merging all the datasets :
+
+df_final = pd.merge(df_merged, df_transpose, on='FakeCustomerID', how='left')
+df_final = pd.merge(df_final, df_for_ISGR, on='FakeCustomerID', how='left')
+
+
+df_final.drop(columns=[('Pre_post_covid')], inplace=True)
+df_final.drop(columns=[('pre_covid_volume')], inplace=True)
+df_final.drop(columns=[('post_covid_volume')], inplace=True)
+
+
+print(df_final.head(20))
+
+### Last step in the data prepration to create labels
+
+def cust_label(PRE_COVID, POST_COVID, growth_rate_2020, ISGR):
+    # Convert PRE_COVID and POST_COVID to strings and then to uppercase
+    PRE_COVID = str(PRE_COVID).upper()
+    POST_COVID = str(POST_COVID).upper()
+    
+    if PRE_COVID == 'FALSE' and POST_COVID == 'TRUE':
+        return 'New Customers'
+    elif PRE_COVID == 'TRUE' and POST_COVID == 'FALSE':
+        return 'Lost Customers'
+    elif growth_rate_2020 >= ISGR:
+        return 'High Growth Customers'
+    elif 0 < growth_rate_2020 < ISGR:
+        return 'Moderate Growth Customers'
+    elif ISGR == growth_rate_2020:
+        return 'Stable Customers'
+    elif growth_rate_2020 < 0:
+        return 'Declining Customers'
+    else:
+        return 'Not defined'
+
+# apply this to final dataset to create label
+    
+df_final['label'] = df_final.apply(lambda row: cust_label(row['Other'], row['POST_COVID'],row['PRE_COVID'], row['ISGR']), axis=1)
+
+unique_cust_label = df_final['label'].unique()
+
+tot_uni = df_final['FakeCustomerID'].nunique()  # Calculate total unique occurrences outside the loop
+for label in unique_cust_label:
+    unique_cust_cnt = df_final[df_final['label'] == label]['FakeCustomerID'].nunique()  # Count the unique occurrences of each label
+    perc = round(((unique_cust_cnt / tot_uni) * 100), 2)  # Calculate percentage of unique occurrences for each label
+    print(label, ":", perc , "%" )
+
+
+#df_pre_post = df_final[(df_final['PRE_COVID'] == 'FALSE') and (df_final['POST_COVID'] == TRUE) ]
+
+df_pre_post = df_final[(df_final['PRE_COVID'] == False) & (df_final['POST_COVID'] == True)]
+new_cust = df_final[(df_final['label'] == 'New Customers') ]
+
+print(df_pre_post)
+
+print(new_cust)
+
+
+### How did COVID-19 impact peak season in 2020?
+
+# COVID - 2019 VS 2020
+# VOLUME , ISGR , REVENUE
+
+#PEAK_2019 = WEEK 45, 2019	WEEK 4, 2020
+#PEAK_2020 = WEEK 45  2020 , WEEK 2 2021
+
+pd.set_option('display.float_format', '{:.2f}'.format)
+
+
+# Your existing code to calculate df_pre_covid_PEAK
+# Filter the DataFrame and then perform aggregation
+
+
+# Filter the DataFrame and then perform aggregation
+df_pre_covid_PEAK = df_final[
+    ((df_final['THE_YEAR'] == 2019) & (df_final['THE_WEEK'] >= 45)) |
+    ((df_final['THE_YEAR'] == 2020) & (df_final['THE_WEEK'] <= 4))
+].groupby(['THE_YEAR']).agg(
+    pre_covid_volume_PEAK=('VOLUME', 'sum'),
+    pre_covid_Revenue_PEAK=('Discounted_price', 'sum')
+).reset_index()
+
+
+print(df_pre_covid_PEAK)
+
+
+
+# Filter the DataFrame and then perform aggregation
+df_post_covid_PEAK = df_final[
+    ((df_final['THE_YEAR'] == 2020) & (df_final['THE_WEEK'] >= 45)) |
+    ((df_final['THE_YEAR'] == 2021) & (df_final['THE_WEEK'] <= 2))
+].groupby(['THE_YEAR']).agg(
+    post_covid_volume_PEAK=('VOLUME', 'sum'),
+    post_covid_Revenue_PEAK=('Discounted_price', 'sum')
+).reset_index()
+
+
+print(df_post_covid_PEAK)
+
+### What percent of each customer group is growing, moderately growing, and declining during the COVID observation period? 
+
+unique_label = df_final['label'].unique()
+
+for label in unique_label:
+    cnt = df_final[(df_final['label'] == label) & (df_final['THE_WEEK'] > 15) & (df_final['THE_YEAR'] == 2020)]['FakeCustomerID'].nunique()
+    tot_uni = df_final['FakeCustomerID'].nunique()
+    perc = round(((cnt/tot_uni)*100),2)
+    print(label, ":", cnt , "unique customers, which makes" , perc , "%" )
+
+
+
+### What was the overall impact of COVID on volumes and revenue by customer group?
+
+unique_label = df_final['label'].unique()
+
+
+for label in unique_label:
+    pre_cov = df_final[(df_final['THE_WEEK'] <= 15) & (df_final['THE_YEAR'] == 2020) & (df_final['label'] == label)]['VOLUME'].sum()
+    post_cov = df_final[(df_final['THE_WEEK'] > 15) & (df_final['THE_YEAR'] == 2020) & (df_final['label'] == label)]['VOLUME'].sum()
+
+    pre_cov_rev = df_final[(df_final['THE_WEEK'] <= 15) & (df_final['THE_YEAR'] == 2020) & (df_final['label'] == label)]['Discounted_price'].sum()
+    post_cov_rev = df_final[(df_final['THE_WEEK'] > 15) & (df_final['THE_YEAR'] == 2020) & (df_final['label'] == label)]['Discounted_price'].sum()
+
+
+    # Calculate weekly growth rate for 2020 compared to 2019 (week 1 to 15)
+    growth_rate_per_size = round(((((post_cov/37) - (pre_cov/15)) / (pre_cov/15)) * 100),2)
+    rev_rate_per_size = round(((((post_cov_rev/37) - (pre_cov_rev/15)) / (pre_cov_rev/15)) * 100),2)
+    print("VOLUME for ",label, " : ",growth_rate_per_size,"%")
+    print("REVENUE for ",label, " : ",rev_rate_per_size,"%")
+
+
+    #number of active customers(distinct) every year
+
+dis_cust_year = df_merged.groupby(['THE_YEAR']).agg({
+    'FakeCustomerID': 'nunique',  # Count distinct custID
+    'VOLUME': 'sum'  # Total orders
+}).reset_index()
+
+print(dis_cust_year.head(20))
+
+
+#number of active customers by year and week
+summary_df = df.groupby(['THE_YEAR', 'THE_WEEK']).agg({
+    'FakeCustomerID': 'nunique',  # Count distinct custID
+    'VOLUME': 'sum'  # Total orders
+}).reset_index()
+
+
+print("\n\n")
+print(summary_df.head(20))
